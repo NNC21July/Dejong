@@ -1,0 +1,206 @@
+﻿{% extends "firewatch/base.html" %}
+
+{% block content %}
+<style>
+  .hero {
+    display:grid;
+    grid-template-columns: 2fr 1fr;
+    gap:12px;
+  }
+  .urgent {
+    border:1px solid #ffb9b9;
+    background:linear-gradient(180deg,#fff1f1,#ffe2e2);
+    border-radius:12px;
+    padding:10px;
+    animation: urgentPulse 1s ease-in-out infinite;
+  }
+  .countdown { font-weight:800; color:#b30000; font-size:1.05rem; margin-top:6px; }
+  .risk-rank {
+    display: inline-block;
+    padding: 3px 9px;
+    border-radius: 999px;
+    font-size: .78rem;
+    font-weight: 800;
+    letter-spacing: .03em;
+    border: 1px solid #cdd7e4;
+    background: #e8edf4;
+    color: #183049;
+  }
+  .risk-rank.elevated_risk {
+    border-color: #f0cf68;
+    background: #fff3cb;
+    color: #6f5000;
+  }
+  .risk-rank.hazard {
+    border-color: #f3b17c;
+    background: #ffe4cc;
+    color: #7a3e00;
+  }
+  .risk-rank.emergency {
+    border-color: #f2a1a1;
+    background: #ffdede;
+    color: #8a1313;
+  }
+  @keyframes urgentPulse {
+    0%{ box-shadow:0 0 0 rgba(210,40,40,.15);} 50%{ box-shadow:0 0 18px rgba(210,40,40,.35);} 100%{ box-shadow:0 0 0 rgba(210,40,40,.15);} 
+  }
+  @media (max-width: 980px){ .hero { grid-template-columns: 1fr; } }
+</style>
+
+<div class="panel">
+  <div style="display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap;">
+    <div>
+      <h3>Footage Detail - Event {{ event.event_id }}</h3>
+      <div class="small">Zone {{ event.zone.code }} | Building {{ event.zone.building.name }}</div>
+    </div>
+    <div style="display:flex; gap:8px;">
+      <a class="btn secondary" href="{% url 'firewatch:dashboard_home' %}">Home</a>
+    </div>
+  </div>
+</div>
+
+<div class="hero">
+  <div class="panel">
+    <h3>Detection Start Interval ({{ n_seconds }}s)</h3>
+    <video id="footagePlayer" style="width:100%; max-height:520px; margin-top:10px; border-radius:12px; background:#000;" controls autoplay muted>
+      <source src="{{ footage_stream_url }}" type="video/mp4">
+    </video>
+    <div class="small" style="margin-top:8px;">This player shows only the cropped interval clip.</div>
+  </div>
+
+  <div>
+    <div class="panel">
+      <h3>Detection Details</h3>
+      <table>
+        <tbody>
+          <tr><th>Scenario Rank</th><td><span class="risk-rank {{ risk_info.risk_level }}">{{ focus.scenario_rank }}</span></td></tr>
+          <tr><th>Camera ID</th><td>{{ focus.camera_id }}</td></tr>
+          <tr><th>Time Since Alarm Triggered</th><td id="timeSinceAlarm">{{ time_since_alarm }}</td></tr>
+          <tr><th>Zone</th><td>{{ event.zone.code }}</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    {% if risk_info.risk_level != 'no_fire_risk' %}
+    <div class="urgent">
+      <strong>Authority Escalation</strong>
+      {% if risk_info.risk_level == 'emergency' %}
+      <div class="small"><strong>Evacuation Announcement:</strong> {{ evacuation_notice.message|default:"Announcing evacuation to people in this zone. Please evacuate via the nearest safe exit immediately." }}</div>
+      <div class="small">This emergency requires immediate confirmation. If you do nothing, it auto-escalates in 20 seconds.</div>
+      {% if event.emergency_call_pending %}
+      <div class="countdown" data-countdown>20s to escalate</div>
+      {% endif %}
+      {% else %}
+      <div class="small">Escalation is available for this severity level.</div>
+      {% endif %}
+      <div style="margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button class="btn warn" data-escalate="manual" type="button">Escalate To Authorities</button>
+        {% if risk_info.risk_level == 'emergency' and event.emergency_call_pending %}
+        <button class="btn secondary" data-escalate="cancel" type="button">Mark As False Alarm</button>
+        {% endif %}
+      </div>
+      <div class="small" style="margin-top:8px;">Escalation status: <strong>{{ event.emergency_call_status|default:"pending_review" }}</strong></div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Classification Run Logs</h3>
+  {% if classification_runs %}
+  <table>
+    <thead><tr><th>Window</th><th>Level</th></tr></thead>
+    <tbody>
+      {% for r in classification_runs %}
+      <tr>
+        <td>{{ r.start_seconds }}s - {{ r.end_seconds }}s</td>
+        <td>{{ r.scenario_rank }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="small">No classification runs recorded yet.</div>
+  {% endif %}
+</div>
+
+<script>
+async function sendEscalation(mode) {
+  const res = await fetch(`/api/events/{{ event.event_id }}/authorities/escalate/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mode }),
+  });
+  if (!res.ok) return;
+  window.location.reload();
+}
+
+async function sendEmergencyDecision(action) {
+  const res = await fetch(`/api/events/{{ event.event_id }}/emergency/decision/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action }),
+  });
+  if (!res.ok) return;
+  window.location.reload();
+}
+
+for (const btn of document.querySelectorAll("[data-escalate]")) {
+  btn.addEventListener("click", () => {
+    const action = btn.getAttribute("data-escalate");
+    if (action === "cancel") {
+      sendEmergencyDecision("cancel");
+      return;
+    }
+    sendEscalation(action);
+  });
+}
+
+(function initEmergencyCountdown() {
+  const countdown = document.querySelector("[data-countdown]");
+  if (!countdown) return;
+
+  const deadlineStr = "{{ emergency_notice.call_deadline|default:''|escapejs }}";
+  const deadline = new Date(deadlineStr).getTime();
+  if (!deadline) return;
+
+  let timer = null;
+  const tick = () => {
+    const now = Date.now();
+    const remaining = Math.max(0, Math.ceil((deadline - now) / 1000));
+    countdown.textContent = `${remaining}s to escalate`;
+    if (remaining <= 0) {
+      clearInterval(timer);
+      sendEscalation("auto_timeout");
+    }
+  };
+  tick();
+  timer = setInterval(tick, 1000);
+})();
+
+(function initLiveAlarmTimer() {
+  const el = document.getElementById("timeSinceAlarm");
+  if (!el) return;
+  const startedAt = "{{ alarm_started_at_iso|default:''|escapejs }}";
+  const startedMs = startedAt ? new Date(startedAt).getTime() : 0;
+  if (!startedMs) return;
+
+  const tick = () => {
+    const total = Math.max(0, Math.floor((Date.now() - startedMs) / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) {
+      el.textContent = `${h}h ${m}m ${s}s`;
+    } else if (m > 0) {
+      el.textContent = `${m}m ${s}s`;
+    } else {
+      el.textContent = `${s}s`;
+    }
+  };
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
+
+{% endblock %}

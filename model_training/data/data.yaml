@@ -1,0 +1,13 @@
+train: ../train/images
+val: ../valid/images
+test: ../test/images
+
+nc: 3
+names: ['controlled_fire', 'fire', 'smoke']
+
+roboflow:
+  workspace: hakeems-workspace
+  project: dejong-fire-classification
+  version: 2
+  license: CC BY 4.0
+  url: https://universe.roboflow.com/hakeems-workspace/dejong-fire-classification/dataset/2

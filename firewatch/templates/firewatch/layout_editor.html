@@ -1,0 +1,516 @@
+﻿{% extends "firewatch/base.html" %}
+
+{% block content %}
+<style>
+  .layout-toolbar {
+    display:flex;
+    gap:10px;
+    flex-wrap:wrap;
+    align-items:center;
+  }
+  .layout-grid-wrap {
+    overflow:auto;
+    border:1px solid #c5d4e3;
+    border-radius:14px;
+    padding:12px;
+    background:
+      radial-gradient(220px 100px at 88% 0%, rgba(244,93,45,.18), transparent 70%),
+      linear-gradient(180deg, #f7fbff, #eaf2f9);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,.7);
+  }
+  .tile {
+    width: 24px;
+    height: 24px;
+    border: 1px solid #c1cfdb;
+    cursor: pointer;
+    position: relative;
+    border-radius: 5px;
+    transition: transform .12s ease, filter .2s ease, box-shadow .2s ease, border-color .2s ease;
+  }
+  .tile:hover {
+    transform: translateY(-1px) scale(1.04);
+    border-color: #8aa8c2;
+  }
+  .tile.empty { background:#dfebf4; }
+  .tile.wall { background:linear-gradient(180deg, #2f3f4e, #1d2a36); }
+  .tile.stairs { background:linear-gradient(180deg, #ffd56e, #e7a823); }
+  .tile.entrance { background:linear-gradient(180deg, #2cca95, #178a64); }
+  .tile.camera { background:linear-gradient(180deg, #47a3ff, #1c6dc6); }
+  .tile.fire {
+    background: radial-gradient(circle at 40% 35%, #ffe08a 0%, #ff8f3f 35%, #d84315 75%, #7a1f0f 100%);
+    animation: fireFlicker .8s infinite alternate;
+    border-color: #8f210f;
+  }
+  .tile.selected-camera {
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #4cc9f0, 0 0 14px 3px rgba(76, 201, 240, .8);
+    animation: camPulse 1s ease-in-out infinite;
+  }
+  .tile.route {
+    background-image:
+      linear-gradient(180deg, rgba(255,255,255,.25), rgba(255,255,255,0)),
+      repeating-linear-gradient(135deg, rgba(10,26,40,.85) 0 2px, transparent 2px 6px);
+    animation: routeFlow 0.8s linear infinite;
+    border-color: #1f2933;
+  }
+  .tile.route.start,
+  .tile.route.end {
+    box-shadow: inset 0 0 0 2px #111;
+  }
+  .tile-label {
+    position:absolute;
+    inset:0;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:#fff;
+    font-size:9px;
+    font-weight:700;
+    pointer-events:none;
+  }
+  .sim-panel {
+    border:1px dashed #b8cadc;
+    border-radius:12px;
+    padding:12px;
+    background: linear-gradient(180deg, #fcfeff, #f3f8fd);
+  }
+  .tool-chip {
+    font-size: .73rem;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: 4px 8px;
+    border-radius: 999px;
+    background: #dbe9f5;
+    color: #18374e;
+  }
+  .tool-btn {
+    position: relative;
+    overflow: hidden;
+  }
+  .tool-btn.active-tool {
+    background: linear-gradient(135deg, #f45d2d, #ff8a57);
+    box-shadow: 0 8px 18px rgba(244, 93, 45, 0.35);
+    transform: translateY(-1px);
+    animation: toolSelectedPulse 1s ease-in-out infinite;
+  }
+  .tool-btn.active-tool::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(120deg, transparent 20%, rgba(255,255,255,.34) 50%, transparent 80%);
+    transform: translateX(-140%);
+    animation: toolShine 1.6s linear infinite;
+    pointer-events: none;
+  }
+  .layout-header {
+    display:flex;
+    justify-content: space-between;
+    align-items:center;
+    gap:12px;
+    flex-wrap: wrap;
+  }
+  @keyframes fireFlicker {
+    0% { filter: brightness(1); transform: scale(1); }
+    100% { filter: brightness(1.2); transform: scale(1.04); }
+  }
+  @keyframes camPulse {
+    0% { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #4cc9f0, 0 0 8px 2px rgba(76, 201, 240, .65); }
+    50% { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #4cc9f0, 0 0 16px 5px rgba(76, 201, 240, .95); }
+    100% { box-shadow: 0 0 0 2px #fff, 0 0 0 4px #4cc9f0, 0 0 8px 2px rgba(76, 201, 240, .65); }
+  }
+  @keyframes routeFlow {
+    from { background-position: 0 0; }
+    to { background-position: 14px 0; }
+  }
+  @keyframes toolSelectedPulse {
+    0% { box-shadow: 0 8px 18px rgba(244, 93, 45, 0.32); }
+    50% { box-shadow: 0 8px 24px rgba(244, 93, 45, 0.48); }
+    100% { box-shadow: 0 8px 18px rgba(244, 93, 45, 0.32); }
+  }
+  @keyframes toolShine {
+    from { transform: translateX(-140%); }
+    to { transform: translateX(140%); }
+  }
+</style>
+
+<div class="panel">
+  <div class="layout-header">
+    <div>
+      <h3>{% if admin_mode %}Admin Grid Editor{% else %}Grid Layout Editor{% endif %}: {{ zone.code }}</h3>
+      <div class="small">Paint map cells, place cameras, set a fire tile for simulation, then compute animated shortest route from entrance directly to fire source.</div>
+    </div>
+    <span class="tool-chip">{% if admin_mode %}Admin Mode{% else %}Operations View{% endif %}</span>
+  </div>
+  <div style="margin-top:10px;">
+    <a class="btn secondary" href="{% url 'firewatch:dashboard_home' %}">Back</a>
+  </div>
+</div>
+
+{% if admin_mode %}
+<div class="panel">
+  <div class="layout-toolbar" style="justify-content:space-between;">
+    <form method="get" action="{% url 'firewatch:admin_page' %}" class="layout-toolbar">
+      <label>Zone
+        <select name="zone_id">
+          {% for z in zones %}
+          <option value="{{ z.id }}"{% if z.id == selected_zone_id %} selected{% endif %}>{{ z.building.name }} - {{ z.code }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button class="btn secondary" type="submit">Load Zone</button>
+    </form>
+    <form method="post" action="{% url 'firewatch:admin_reset_events' %}" onsubmit="return confirm('Delete all events and reset monitor state?');">
+      {% csrf_token %}
+      <input type="hidden" name="zone_id" value="{{ selected_zone_id }}">
+      <button class="btn warn" type="submit">Reset Events</button>
+    </form>
+  </div>
+</div>
+{% endif %}
+
+<div class="panel layout-toolbar">
+  <label>Rows <input type="number" id="rows" min="5" max="80" style="width:80px"></label>
+  <label>Cols <input type="number" id="cols" min="5" max="80" style="width:80px"></label>
+  <button class="btn secondary" id="resizeBtn" type="button">Resize Grid</button>
+  <button class="btn secondary" id="clearGridBtn" type="button">Clear Grid</button>
+  <button class="btn" id="saveBtn" type="button">Save Layout</button>
+  <span class="small" id="saveStatus"></span>
+</div>
+
+<div class="panel">
+  <div class="layout-toolbar">
+    <span class="tool-chip">Paint</span>
+    <button class="btn secondary tool-btn" data-tool="empty" type="button">Empty</button>
+    <button class="btn secondary tool-btn" data-tool="wall" type="button">Wall</button>
+    <button class="btn secondary tool-btn" data-tool="stairs" type="button">Stairs</button>
+    <button class="btn secondary tool-btn" data-tool="entrance" type="button">Entrance</button>
+    <button class="btn secondary tool-btn" data-tool="camera" type="button">Camera</button>
+    <button class="btn secondary tool-btn" data-tool="fire" type="button">Fire</button>
+    <label>Camera ID
+      <select id="cameraSelect">
+        {% for cid in camera_ids %}
+        <option value="{{ cid }}">{{ cid }}</option>
+        {% endfor %}
+      </select>
+    </label>
+  </div>
+</div>
+
+<div class="panel sim-panel">
+  <div class="layout-toolbar">
+    <strong>Fire Simulation</strong>
+    <button class="btn" id="computePathBtn" type="button" style="display:none;">Compute Shortest Path To Fire</button>
+    <button class="btn secondary" id="clearSimBtn" type="button">Clear Fire/Path</button>
+  </div>
+  <div id="simInfo" class="small" style="margin-top:8px;">Set `Fire` tool and click a tile to begin simulation.</div>
+</div>
+
+<div class="panel layout-grid-wrap">
+  <div id="grid" style="display:grid; gap:2px;"></div>
+</div>
+
+<script>
+const initial = {{ layout_json|safe }};
+let rows = initial.rows;
+let cols = initial.cols;
+let cells = initial.cells;
+let cameraPoints = initial.camera_points || {};
+let tool = "wall";
+
+let firePoint = null;
+let selectedCameraId = null;
+let selectedCameraPoint = null;
+let routePath = [];
+
+const gridEl = document.getElementById("grid");
+const rowsEl = document.getElementById("rows");
+const colsEl = document.getElementById("cols");
+const saveStatus = document.getElementById("saveStatus");
+const simInfo = document.getElementById("simInfo");
+const computePathBtn = document.getElementById("computePathBtn");
+rowsEl.value = rows;
+colsEl.value = cols;
+
+function inBounds(r, c) {
+  return r >= 0 && c >= 0 && r < rows && c < cols;
+}
+
+function key(r, c) {
+  return `${r}:${c}`;
+}
+
+function routeSet() {
+  const set = new Set();
+  for (const p of routePath) set.add(key(p[0], p[1]));
+  return set;
+}
+
+function cellClassBase(r, c) {
+  const type = cells[r][c] || "empty";
+  return ["tile", type].join(" ");
+}
+
+function cameraAt(r, c) {
+  for (const [cameraId, point] of Object.entries(cameraPoints)) {
+    if (point[0] === r && point[1] === c) return cameraId;
+  }
+  return null;
+}
+
+function neighbors(r, c) {
+  return [[r+1,c],[r-1,c],[r,c+1],[r,c-1]].filter(([rr,cc]) => inBounds(rr,cc));
+}
+
+function bfsPath(start, goal) {
+  const q = [start];
+  const parent = new Map();
+  parent.set(key(start[0], start[1]), null);
+
+  while (q.length > 0) {
+    const [r, c] = q.shift();
+    if (r === goal[0] && c === goal[1]) break;
+
+    for (const [rr, cc] of neighbors(r, c)) {
+      if (cells[rr][cc] === "wall") continue;
+      const k = key(rr, cc);
+      if (parent.has(k)) continue;
+      parent.set(k, [r, c]);
+      q.push([rr, cc]);
+    }
+  }
+
+  const endKey = key(goal[0], goal[1]);
+  if (!parent.has(endKey)) return null;
+
+  const path = [];
+  let cur = goal;
+  while (cur) {
+    path.push(cur);
+    cur = parent.get(key(cur[0], cur[1]));
+  }
+  path.reverse();
+  return path;
+}
+
+function allEntrances() {
+  const out = [];
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      if (cells[r][c] === "entrance") out.push([r, c]);
+    }
+  }
+  return out;
+}
+
+function pickNearestCameraFromFire() {
+  if (!firePoint) {
+    selectedCameraId = null;
+    selectedCameraPoint = null;
+    return;
+  }
+
+  let best = null;
+  for (const [cameraId, point] of Object.entries(cameraPoints)) {
+    const path = bfsPath(firePoint, point);
+    if (!path) continue;
+    const dist = path.length - 1;
+    if (!best || dist < best.dist) best = { cameraId, point, dist };
+  }
+
+  selectedCameraId = best ? best.cameraId : null;
+  selectedCameraPoint = best ? best.point : null;
+}
+
+function updateSimulationUI() {
+  computePathBtn.style.display = firePoint ? "inline-block" : "none";
+
+  if (!firePoint) {
+    simInfo.textContent = "Set `Fire` tool and click a tile to begin simulation.";
+    return;
+  }
+
+  if (routePath.length > 0) {
+    simInfo.textContent = `Fire at (${firePoint[0]}, ${firePoint[1]}). Route to fire source length: ${routePath.length - 1} steps.`;
+  } else {
+    simInfo.textContent = `Fire at (${firePoint[0]}, ${firePoint[1]}). Click Compute Shortest Path To Fire.`;
+  }
+}
+
+function renderGrid() {
+  gridEl.innerHTML = "";
+  gridEl.style.gridTemplateColumns = `repeat(${cols}, 24px)`;
+
+  const route = routeSet();
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const tile = document.createElement("div");
+      tile.className = cellClassBase(r, c);
+
+      const cam = cameraAt(r, c);
+      if (cam) tile.classList.add("camera");
+      if (firePoint && firePoint[0] === r && firePoint[1] === c) tile.classList.add("fire");
+      if (route.has(key(r, c))) tile.classList.add("route");
+      if (routePath.length > 0 && r === routePath[0][0] && c === routePath[0][1]) tile.classList.add("start");
+      if (routePath.length > 0 && r === routePath[routePath.length-1][0] && c === routePath[routePath.length-1][1]) tile.classList.add("end");
+
+      if (selectedCameraPoint && selectedCameraPoint[0] === r && selectedCameraPoint[1] === c) {
+        tile.classList.add("selected-camera");
+      }
+
+      const label = document.createElement("span");
+      label.className = "tile-label";
+      if (cam) label.textContent = "C";
+      if (firePoint && firePoint[0] === r && firePoint[1] === c) label.textContent = "F";
+      tile.appendChild(label);
+
+      tile.title = `${r},${c} (${cells[r][c]})`;
+      if (cam) tile.title += ` | Camera ${cam}`;
+      if (firePoint && firePoint[0] === r && firePoint[1] === c) tile.title += " | Fire source";
+
+      tile.addEventListener("click", () => {
+        if (tool === "camera") {
+          const cameraId = document.getElementById("cameraSelect").value;
+          if (!cameraId) return;
+          cameraPoints[cameraId] = [r, c];
+          if (firePoint) pickNearestCameraFromFire();
+          routePath = [];
+        } else if (tool === "fire") {
+          if (cells[r][c] === "wall") return;
+          firePoint = [r, c];
+          routePath = [];
+          pickNearestCameraFromFire();
+        } else {
+          cells[r][c] = tool;
+          for (const [cameraId, point] of Object.entries(cameraPoints)) {
+            if (point[0] === r && point[1] === c) delete cameraPoints[cameraId];
+          }
+          if (firePoint && firePoint[0] === r && firePoint[1] === c && tool === "wall") {
+            firePoint = null;
+            selectedCameraId = null;
+            selectedCameraPoint = null;
+          }
+          routePath = [];
+          if (firePoint) pickNearestCameraFromFire();
+        }
+
+        renderGrid();
+        updateSimulationUI();
+      });
+
+      gridEl.appendChild(tile);
+    }
+  }
+}
+
+function resizeGrid(newRows, newCols) {
+  const next = Array.from({ length: newRows }, (_, r) =>
+    Array.from({ length: newCols }, (_, c) => (cells[r] && cells[r][c]) ? cells[r][c] : "empty")
+  );
+  cells = next;
+  rows = newRows;
+  cols = newCols;
+
+  for (const [cameraId, point] of Object.entries(cameraPoints)) {
+    if (point[0] >= newRows || point[1] >= newCols) delete cameraPoints[cameraId];
+  }
+
+  if (firePoint && (firePoint[0] >= newRows || firePoint[1] >= newCols)) {
+    firePoint = null;
+    selectedCameraId = null;
+    selectedCameraPoint = null;
+  }
+
+  routePath = [];
+  if (firePoint) pickNearestCameraFromFire();
+}
+
+function computeShortestRouteToCamera() {
+  if (!firePoint) return;
+  const entrances = allEntrances();
+  if (entrances.length === 0) {
+    simInfo.textContent = "No entrance tiles found. Mark at least one entrance first.";
+    return;
+  }
+
+  let best = null;
+  for (const ent of entrances) {
+    const path = bfsPath(ent, firePoint);
+    if (!path) continue;
+    if (!best || path.length < best.length) best = path;
+  }
+
+  if (!best) {
+    routePath = [];
+    simInfo.textContent = "No route from any entrance to fire source (blocked by walls).";
+  } else {
+    routePath = best;
+    simInfo.textContent = `Route ready. Entrance (${best[0][0]},${best[0][1]}) -> Fire (${firePoint[0]},${firePoint[1]}) in ${best.length - 1} steps.`;
+  }
+
+  renderGrid();
+  updateSimulationUI();
+}
+
+for (const btn of document.querySelectorAll("[data-tool]")) {
+  btn.addEventListener("click", () => {
+    tool = btn.getAttribute("data-tool");
+    for (const x of document.querySelectorAll("[data-tool]")) x.classList.remove("active-tool");
+    btn.classList.add("active-tool");
+  });
+}
+
+document.querySelector("[data-tool='wall']").click();
+
+document.getElementById("resizeBtn").addEventListener("click", () => {
+  const r = Math.max(5, Math.min(parseInt(rowsEl.value || "20", 10), 80));
+  const c = Math.max(5, Math.min(parseInt(colsEl.value || "20", 10), 80));
+  resizeGrid(r, c);
+  renderGrid();
+  updateSimulationUI();
+});
+
+document.getElementById("clearGridBtn").addEventListener("click", () => {
+  cells = Array.from({ length: rows }, () => Array.from({ length: cols }, () => "empty"));
+  cameraPoints = {};
+  firePoint = null;
+  selectedCameraId = null;
+  selectedCameraPoint = null;
+  routePath = [];
+  renderGrid();
+  updateSimulationUI();
+  saveStatus.textContent = " Cleared. Click Save Layout to persist.";
+});
+
+document.getElementById("clearSimBtn").addEventListener("click", () => {
+  firePoint = null;
+  selectedCameraId = null;
+  selectedCameraPoint = null;
+  routePath = [];
+  renderGrid();
+  updateSimulationUI();
+});
+
+document.getElementById("computePathBtn").addEventListener("click", computeShortestRouteToCamera);
+
+document.getElementById("saveBtn").addEventListener("click", async () => {
+  saveStatus.textContent = " Saving...";
+  const res = await fetch(`/api/zones/{{ zone.id }}/layout/save/`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows, cols, cells, camera_points: cameraPoints })
+  });
+  const data = await res.json();
+  if (res.ok) {
+    saveStatus.textContent = " Saved.";
+  } else {
+    saveStatus.textContent = ` Error: ${data.error || "failed"}`;
+  }
+});
+
+pickNearestCameraFromFire();
+renderGrid();
+updateSimulationUI();
+</script>
+{% endblock %}

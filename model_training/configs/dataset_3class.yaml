@@ -1,0 +1,24 @@
+# Update all paths below to point at your dataset.
+# Expected YOLO directory format:
+# dataset_root/
+#   images/
+#     train/*.jpg
+#     val/*.jpg
+#   labels/
+#     train/*.txt
+#     val/*.txt
+#
+# class ids:
+# 0 -> controlled_fire
+# 1 -> fire
+# 2 -> smoke
+
+path: /absolute/path/to/dataset_root
+train: images/train
+val: images/val
+test: images/test  # Optional. Remove this line if you do not have a test split.
+
+names:
+  0: controlled_fire
+  1: fire
+  2: smoke

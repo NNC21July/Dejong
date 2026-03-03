@@ -1,0 +1,475 @@
+﻿{% extends "firewatch/base.html" %}
+
+{% block content %}
+<style>
+  .alert-bar {
+    border-radius: 12px;
+    border: 1px solid #ffd1b7;
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    background: linear-gradient(90deg, #fff6ef, #ffe7d7);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    animation: alertSlide .45s ease forwards, softGlow 1.8s ease-in-out infinite;
+    box-shadow: 0 8px 20px rgba(244, 93, 45, 0.14);
+    position: relative;
+    overflow: hidden;
+  }
+  .alert-bar::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: -120%;
+    width: 60%;
+    height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+    transform: skewX(-20deg);
+    animation: barSweep 2.2s ease-in-out infinite;
+  }
+  .alert-bar.elevated {
+    border-color: #f2c94c;
+    background: linear-gradient(90deg, #fff8d9, #ffeeb0);
+    animation: hazardPulse 1.4s ease-in-out infinite;
+  }
+  .alert-bar.hazard {
+    border-color: #f2994a;
+    background: linear-gradient(90deg, #fff3e3, #ffd9ad);
+    animation: hazardPulse 1.1s ease-in-out infinite;
+  }
+  .alert-bar.emergency {
+    border-color: #ff9a9a;
+    background: linear-gradient(90deg, #ffecec, #ffdada);
+    animation: emergencyPulse .55s ease-in-out infinite, shakeX .38s linear infinite, emergencyFlash .7s steps(2, jump-none) infinite;
+  }
+  .zone-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+    gap: 12px;
+    width: min(1040px, 100%);
+    margin: 0 auto;
+  }
+  .map-center-panel {
+    min-height: 68vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+  }
+  .zone-card {
+    border: 1px solid #c7d8e8;
+    border-radius: 14px;
+    padding: 12px;
+    background: linear-gradient(180deg, #fbfdff, #f1f7fd);
+    position: relative;
+  }
+  .zone-head {
+    display:flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 8px;
+    gap:8px;
+  }
+  .mini-grid { display:grid; gap:2px; }
+  .zone-map-wrap {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 8px;
+  }
+  .grid-legend {
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    border: 1px solid #c7d8e8;
+    border-radius: 10px;
+    padding: 8px 10px;
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 8px 16px rgba(17, 43, 66, 0.12);
+    min-width: 150px;
+  }
+  .legend-title {
+    font-size: .74rem;
+    font-weight: 800;
+    letter-spacing: .04em;
+    margin-bottom: 6px;
+    color: #27445f;
+    text-transform: uppercase;
+  }
+  .legend-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: .73rem;
+    color: #314a62;
+    margin: 2px 0;
+  }
+  .legend-swatch {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    border: 1px solid rgba(0,0,0,.15);
+    flex: 0 0 auto;
+  }
+  .mini-tile {
+    width: 16px;
+    height: 16px;
+    border-radius: 3px;
+    border: 1px solid #c8d4df;
+    transition: transform .15s ease;
+  }
+  .mini-tile:hover { transform: scale(1.08); }
+  .mini-tile.empty { background: #e8eef5; }
+  .mini-tile.wall { background: #2a3440; }
+  .mini-tile.stairs { background: #e6b33c; }
+  .mini-tile.entrance { background: #1c9a69; }
+  .mini-tile.camera { background: #2e79d6; }
+  .mini-tile.alert-camera {
+    background: radial-gradient(circle at 30% 30%, #ffd46d 0, #ff7f3f 45%, #d33232 85%);
+    box-shadow: 0 0 0 2px rgba(255,255,255,.7), 0 0 10px rgba(211,50,50,.6);
+    animation: fireBlink .8s ease-in-out infinite;
+    cursor: pointer;
+  }
+  .mini-tile.alert-camera.emergency {
+    animation: emergencyBlink .45s ease-in-out infinite;
+  }
+  .mini-tile.fire-source {
+    background: radial-gradient(circle at 35% 35%, #ffe18b 0%, #ff9f43 38%, #d9481f 78%, #7d1f11 100%);
+    box-shadow: 0 0 0 2px rgba(255,255,255,.75), 0 0 10px rgba(217,72,31,.65);
+    animation: fireBlink .7s ease-in-out infinite;
+  }
+  .small-note { font-size:.78rem; color:#4a6074; }
+  .analysis-popup {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 40;
+    display: none;
+    border-radius: 14px;
+    border: 2px solid #ff9f43;
+    background: linear-gradient(180deg, #fff5e8, #ffe3c4);
+    color: #6a3300;
+    padding: 14px 18px;
+    box-shadow: 0 18px 36px rgba(0,0,0,.28);
+    font-weight: 800;
+    letter-spacing: .02em;
+    animation: analysisFlash .65s ease-in-out infinite;
+  }
+  .analysis-popup.show { display: block; }
+  @keyframes analysisFlash {
+    0% { transform: translate(-50%, -50%) scale(1); filter: brightness(1); }
+    50% { transform: translate(-50%, -50%) scale(1.04); filter: brightness(1.12); }
+    100% { transform: translate(-50%, -50%) scale(1); filter: brightness(1); }
+  }
+
+  @keyframes fireBlink {
+    0% { transform: scale(1); filter: brightness(1); }
+    50% { transform: scale(1.08); filter: brightness(1.2); }
+    100% { transform: scale(1); filter: brightness(1); }
+  }
+  @keyframes emergencyBlink {
+    0% { transform: scale(1); box-shadow: 0 0 5px rgba(211,50,50,.6); }
+    50% { transform: scale(1.14); box-shadow: 0 0 18px rgba(211,50,50,.95); }
+    100% { transform: scale(1); box-shadow: 0 0 5px rgba(211,50,50,.6); }
+  }
+  @keyframes emergencyPulse {
+    0% { box-shadow: 0 0 0 rgba(200,20,20,.1); }
+    50% { box-shadow: 0 0 24px rgba(200,20,20,.35); }
+    100% { box-shadow: 0 0 0 rgba(200,20,20,.1); }
+  }
+  @keyframes hazardPulse {
+    0% { box-shadow: 0 0 0 rgba(180, 130, 0, .12); }
+    50% { box-shadow: 0 0 18px rgba(180, 130, 0, .28); }
+    100% { box-shadow: 0 0 0 rgba(180, 130, 0, .12); }
+  }
+  @keyframes softGlow {
+    0% { box-shadow: 0 8px 20px rgba(244, 93, 45, 0.12); }
+    50% { box-shadow: 0 10px 28px rgba(244, 93, 45, 0.2); }
+    100% { box-shadow: 0 8px 20px rgba(244, 93, 45, 0.12); }
+  }
+  @keyframes shakeX {
+    0%, 100% { transform: translateX(0); }
+    20% { transform: translateX(-2px); }
+    40% { transform: translateX(2px); }
+    60% { transform: translateX(-2px); }
+    80% { transform: translateX(2px); }
+  }
+  @keyframes barSweep {
+    0% { left: -120%; }
+    45% { left: 130%; }
+    100% { left: 130%; }
+  }
+  @keyframes statusFlash {
+    0% { box-shadow: 0 0 0 rgba(244, 145, 71, .15); }
+    50% { box-shadow: 0 0 20px rgba(244, 145, 71, .35); }
+    100% { box-shadow: 0 0 0 rgba(244, 145, 71, .15); }
+  }
+  @keyframes emergencyFlash {
+    0% { filter: brightness(1); }
+    50% { filter: brightness(1.22); }
+    100% { filter: brightness(1); }
+  }
+  @keyframes alertSlide {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+</style>
+
+<div class="panel">
+  <form method="post" action="{% url 'firewatch:home_add_event' %}" style="margin-top:10px;">
+    {% csrf_token %}
+    <button class="btn warn" type="submit">Start Scenario</button>
+  </form>
+</div>
+
+<div class="panel">
+  <h3>Active Hazard / Emergency Alerts</h3>
+  <div id="alertBars">
+  {% for n in active_notifications %}
+  <a class="alert-bar {% if n.risk_label == 'Emergency' %}emergency{% elif n.risk_label == 'Hazard' %}hazard{% elif n.risk_label == 'Elevated Risk' %}elevated{% endif %}" href="{{ n.detail_url }}">
+    <div>
+      <strong>{{ n.risk_label }}</strong> | Zone {{ n.zone }} | Camera {{ n.camera_id }}
+    </div>
+    <span class="badge">Open Footage</span>
+  </a>
+  {% empty %}
+  <div class="small" id="alertBarsEmpty">No hazard or emergency alerts currently active.</div>
+  {% endfor %}
+  </div>
+</div>
+
+<div class="panel map-center-panel">
+  <div id="analysisPopup" class="analysis-popup">Fire detected, analysing footage</div>
+  <h3 style="text-align:center;">Building Grid Overview (Read-Only)</h3>
+  <div class="small" style="text-align:center;">Main mall map view. Click the animated fire camera tile to open footage details.</div>
+  <div id="zoneCards" class="zone-cards" style="margin-top:16px;"></div>
+</div>
+
+<div class="panel">
+  <table>
+    <thead>
+      <tr>
+        <th>Event ID</th>
+        <th>Zone</th>
+        <th>Created</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for event in events %}
+      <tr>
+        <td><strong>{{ event.event_id }}</strong><div class="small">{{ event.trigger_type }}</div></td>
+        <td>{{ event.zone.code }}<div class="small">{{ event.zone.building.name }}</div></td>
+        <td>{{ event.created_at|date:"Y-m-d H:i:s" }}</td>
+        <td><a class="btn" href="{% url 'firewatch:event_footage_view' event.event_id %}">Open Footage</a></td>
+      </tr>
+      {% empty %}
+      <tr>
+        <td colspan="4">No events yet. Use `/api/stage1/event-trigger/` to create one.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<script>
+let zoneOverviews = {{ zone_overviews_json|safe }};
+const zoneCards = document.getElementById("zoneCards");
+let activeNotifications = {{ active_notifications_json|safe }};
+const alertBars = document.getElementById("alertBars");
+let lastLiveStateKey = "";
+const seenAlertKeys = new Set((activeNotifications || []).map((n) => `${n.event_id}|${n.risk_label}|${n.zone}|${n.camera_id}`));
+const analysisPopup = document.getElementById("analysisPopup");
+
+function cameraPointMap(cameraPoints) {
+  const map = new Map();
+  for (const [cameraId, point] of Object.entries(cameraPoints || {})) {
+    map.set(`${point[0]}:${point[1]}`, cameraId);
+  }
+  return map;
+}
+
+function renderZoneCards() {
+  zoneCards.innerHTML = "";
+  for (const z of zoneOverviews) {
+    const card = document.createElement("div");
+    card.className = "zone-card";
+
+    const head = document.createElement("div");
+    head.className = "zone-head";
+    head.innerHTML = `
+      <div>
+        <strong>${z.zone_code}</strong>
+        <div class="small-note">${z.building_name}</div>
+      </div>
+      <div style="display:flex; gap:6px; align-items:center;">${z.alert_level ? `<span class="badge">${z.alert_level}</span>` : ""}</div>
+    `;
+
+    const info = document.createElement("div");
+    info.className = "small-note";
+    info.textContent = z.alert_camera ? `Alert camera: ${z.alert_camera}` : "No active hazard camera";
+
+    const grid = document.createElement("div");
+    grid.className = "mini-grid";
+    grid.style.gridTemplateColumns = `repeat(${z.cols}, 16px)`;
+    const camMap = cameraPointMap(z.camera_points);
+
+    for (let r = 0; r < z.rows; r++) {
+      for (let c = 0; c < z.cols; c++) {
+        const tile = document.createElement("div");
+        tile.className = "mini-tile " + (z.cells[r][c] || "empty");
+
+      const camId = camMap.get(`${r}:${c}`);
+      if (camId) {
+        tile.classList.add("camera");
+        tile.title = `Camera ${camId}`;
+      }
+
+      const pendingFire = z.pending_fire_cell;
+      if (pendingFire && pendingFire[0] === r && pendingFire[1] === c) {
+        tile.classList.add("fire-source");
+        tile.title = `Fire source (${r}, ${c})`;
+      }
+
+        if (camId && z.alert_camera && camId === z.alert_camera) {
+          tile.classList.remove("camera");
+          tile.classList.add("alert-camera");
+          if (z.alert_level === "emergency") tile.classList.add("emergency");
+          tile.title = `${z.alert_level.toUpperCase()} detected by ${camId}. Click to open footage.`;
+          tile.addEventListener("click", () => {
+            if (z.alert_redirect_url) window.location.href = z.alert_redirect_url;
+          });
+        }
+        grid.appendChild(tile);
+      }
+    }
+
+    card.appendChild(head);
+    card.appendChild(info);
+    const gridWrap = document.createElement("div");
+    gridWrap.className = "zone-map-wrap";
+    gridWrap.appendChild(grid);
+    card.appendChild(gridWrap);
+
+    const legend = document.createElement("div");
+    legend.className = "grid-legend";
+    legend.innerHTML = `
+      <div class="legend-title">Legend</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#2a3440"></span>Wall</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#e6b33c"></span>Stairs</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#1c9a69"></span>Entrance</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#2e79d6"></span>Camera</div>
+      <div class="legend-row"><span class="legend-swatch" style="background:#d33232"></span>Alert Camera</div>
+    `;
+    card.appendChild(legend);
+    zoneCards.appendChild(card);
+  }
+}
+
+function renderAlertBars() {
+  alertBars.innerHTML = "";
+  if (!activeNotifications.length) {
+    const empty = document.createElement("div");
+    empty.className = "small";
+    empty.textContent = "No hazard or emergency alerts currently active.";
+    alertBars.appendChild(empty);
+    return;
+  }
+  for (const n of activeNotifications) {
+    const bar = document.createElement("a");
+    const risk = (n.risk_label || "").toLowerCase();
+    const riskClass = risk.includes("emergency") ? "emergency" : (risk.includes("hazard") ? "hazard" : (risk.includes("elevated") ? "elevated" : ""));
+    bar.className = "alert-bar " + riskClass;
+    bar.href = n.detail_url;
+    bar.innerHTML = `
+      <div><strong>${n.risk_label}</strong> | Zone ${n.zone} | Camera ${n.camera_id}</div>
+      <span class="badge">Open Footage</span>
+    `;
+    alertBars.appendChild(bar);
+  }
+}
+
+function renderDashboardLive() {
+  renderZoneCards();
+  renderAlertBars();
+}
+
+function pendingEventIds() {
+  const ids = [];
+  for (const z of zoneOverviews || []) {
+    if (z.pending_event_id) ids.push(String(z.pending_event_id));
+  }
+  return ids;
+}
+
+function isEventAnalyzed(eventId) {
+  for (const n of activeNotifications || []) {
+    if (String(n.event_id) !== String(eventId)) continue;
+    const risk = (n.risk_label || "").toLowerCase();
+    if (risk.includes("elevated") || risk.includes("hazard") || risk.includes("emergency")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function shouldShowAnalysisPopup() {
+  const ids = pendingEventIds();
+  if (!ids.length) return false;
+  for (const id of ids) {
+    if (!isEventAnalyzed(id)) return true;
+  }
+  return false;
+}
+
+function maybeShowAnalysisPopup() {
+  if (!analysisPopup) return;
+  if (!shouldShowAnalysisPopup()) return;
+  analysisPopup.classList.add("show");
+}
+
+function maybeHideAnalysisPopup() {
+  if (!analysisPopup) return;
+  if (!shouldShowAnalysisPopup()) analysisPopup.classList.remove("show");
+}
+
+async function refreshLiveState() {
+  try {
+    const url = "{% url 'firewatch:dashboard_live_state_api' %}" + "?ts=" + Date.now();
+    const res = await fetch(url, { cache: "no-store", headers: { "Cache-Control": "no-cache" } });
+    if (!res.ok) return;
+    const data = await res.json();
+    const key = JSON.stringify(data.active_notifications || []);
+    if (key !== lastLiveStateKey) {
+      const next = data.active_notifications || [];
+      next.forEach((n) => {
+        const k = `${n.event_id}|${n.risk_label}|${n.zone}|${n.camera_id}`;
+        if (seenAlertKeys.has(k)) return;
+        seenAlertKeys.add(k);
+      });
+      activeNotifications = next;
+      zoneOverviews = data.zone_overviews || [];
+      lastLiveStateKey = key;
+      renderDashboardLive();
+      maybeHideAnalysisPopup();
+    } else {
+      zoneOverviews = data.zone_overviews || [];
+      renderZoneCards();
+      maybeHideAnalysisPopup();
+    }
+  } catch (e) {
+    // no-op
+  }
+}
+
+renderDashboardLive();
+lastLiveStateKey = JSON.stringify(activeNotifications || []);
+setTimeout(maybeShowAnalysisPopup, 850);
+maybeHideAnalysisPopup();
+setInterval(refreshLiveState, 2500);
+</script>
+{% endblock %}

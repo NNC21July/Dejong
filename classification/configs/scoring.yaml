@@ -1,0 +1,41 @@
+openai:
+  model: gpt-4o-mini
+  high_risk_model: gpt-4o
+  high_risk_switch_threshold: 0.55
+
+uncertainty:
+  dangerous_mid_min: 0.20
+  dangerous_mid_max: 0.90
+  gap_abs_max: 0.24
+  smoke_dominance_min: 0.08
+  controlled_dominance_min: 0.30
+  high_flicker_min: 0.45
+  moderate_spread_min: 0.08
+  moderate_spread_max: 0.75
+
+local_score_weights:
+  dangerous_fire_index: 0.62
+  spread_normalized: 0.36
+  smoke: 0.28
+  fire_controlled_gap_positive: 0.24
+  fire_controlled_ratio_capped: 0.22
+  flicker_penalty: 0.03
+
+context_weighting:
+  w_context: 0.72
+  scale_by_openai_confidence: true
+  min_context_weight: 0.70
+  min_openai_confidence_floor: 0.75
+
+scenario_thresholds:
+  emergency_enter: 0.46
+  emergency_exit: 0.40
+  hazard_enter: 0.22
+  hazard_exit: 0.16
+  elevated_enter: 0.08
+  no_fire_risk_max: 0.04
+  elevated_max_fire_conf: 0.12
+  elevated_min_smoke_conf: 0.10
+
+review:
+  escalation_window_seconds: 30
